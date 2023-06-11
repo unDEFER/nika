@@ -1,0 +1,317 @@
+<== system;
+//<=== import with implementation
+
+position ~
+{
+    line = u32,
+    pos = u32
+}
+
+lexem_type ~ {{
+    Begin,
+    Identifier,
+    Integer,
+    Float,
+    Operator,
+    Delimeter,
+    Bracket,
+    EndOfInput,
+    Blank,
+    BadChar
+}}
+
+lexer ~
+{
+    filename = string,
+    lines = array{entry ~ string},
+    start = position,
+    end = position,
+    lexem = string
+    lexem_type
+}
+
+|lexer|(filename; read)
+{
+    |filedata, filesize|(filename; read);
+
+    lines = array{entry ~ string};
+    start_line = 0;
+
+    <(i = 0 .. filesize)>
+    {
+        filedata[i] == '\n' ?
+        {
+            line = filedata[start_line..i];
+            lines ~= line;
+            start_line = i+1;
+        }
+    }
+
+    file_size > start_line ?
+    {
+        line = filedata[start_line..file_size];
+        lines ~= line;
+    }
+
+    lexer = {filename, lines, lines};
+}
+
+|lexer|(lexer)
+{
+    currect_pos = lexer.end;
+    |current_char|(lexer, current_pos)
+    {
+        |is_eof|(lexer, current_pos)
+        {
+            current_pos.line >= lexer.lines.len;
+        } ? {
+            current_char = '\x04';
+        } : {
+            current_char = lexer.lines[current_pos.line][current_pos.pos];
+        }
+    };
+
+NextChar:
+
+    |is_digit|(current_char)
+    {
+        is_digit = current_char >= '0' && current_char <= '9';
+    }?
+    {
+        NextDigit:
+            |next_pos => current_pos|(lexer, current_pos)
+            {
+                next_pos = current_pos;
+                current_pos.pos >= lexer.lines[current_pos.line].len?
+                {
+                    |next_line => next_pos|(current_pos)
+                    {
+                        next_line.line = current_pos.line + 1;
+                        next_line.pos = 0;
+                    }
+                }:{
+                    next_pos.pos++;
+                }
+            };
+            |current_char|(lexer, current_pos);
+
+        current_char == '.'?
+        {
+            NextDigit2:
+                |next_pos => current_pos|(lexer, current_pos);
+                |current_char|(lexer, current_pos);
+
+            |is_digit|(current_char)?
+            {
+                ==> NextDigit2;
+            }
+
+            |lexer|(lexer, current_pos, lexem_type = lexem_type.Float)
+            {
+                lexer.start = lexer.end;
+                lexer.end = current_pos;
+                lexer.lexem = lexer.lines[current_pos.line][lexer.start.pos..lexer.end.pos];
+                lexer.lexem_type = lexem_type;
+            };
+        }
+        :
+        {
+            |is_digit|(current_char)?
+            {
+                ==> NextDigit;
+            }
+
+            |lexer|(lexer, current_pos, lexem_type = lexem_type.Integer);
+        }
+    }
+    :|is_alpha|(current_char)
+    {
+        is_alpha = current_char >= 'A' && current_char <= 'Z' ||
+            current_char >= 'a' && current_char <= 'z' || current_char == '_' || current_char == '#';
+    }?
+    {
+        NextAlphaNum:
+            |next_pos => current_pos|(lexer, current_pos);
+            |current_char|(lexer, current_pos);
+
+        |is_alphanum|(current_char)
+        {
+            is_alphanum = is_alpha(current_char) || is_digit(current_char);
+        }?
+        {
+            ==> NextAlphaNum;
+        }
+
+        |lexer|(lexer, current_pos, lexem_type = lexem_type.Identifier);
+    }
+    : current_char == '+' || current_char == '-' || current_char == '*'
+        || current_char == '>'  ?
+    {
+        |next_pos => current_pos|(lexer, current_pos);
+        |current_char|(lexer, current_pos);
+
+        |current_pos, current_char|(lexer, current_pos, current_char, skip_chr = '=')
+        {
+            current_char == skip_chr ?
+            {
+                |next_pos => current_pos|(lexer, current_pos);
+                |current_char|(lexer, current_pos);
+            }
+        }
+
+        |lexer|(lexer, current_pos, lexem_type = lexem_type.Operator);
+    }
+    : current_char == '/' ?
+    {
+        |next_pos => current_pos|(lexer, current_pos);
+        |current_char|(lexer, current_pos);
+
+        current_char == '=' ?
+        {
+            |next_pos => current_pos|(lexer, current_pos);
+            |current_char|(lexer, current_pos);
+        } :
+        current_char == '/' ?
+        {
+            |next_line => current_pos|(lexer, current_pos);
+            |current_char|(lexer, current_pos);
+            ==> NextChar;
+        } :
+        current_char == '*' ?
+        {
+            SeekAsterisk:
+                |next_pos => current_pos|(lexer, current_pos);
+                |current_char|(lexer, current_pos);
+
+                current_char == '*' ?
+                {
+                    |next_pos => current_pos|(lexer, current_pos);
+                    |current_char|(lexer, current_pos);
+
+                    current_char == '/' ?
+                    {
+                        |next_pos => current_pos|(lexer, current_pos);
+                        |current_char|(lexer, current_pos);
+
+                        ==> NextChar;
+                    }
+                }
+            ==> SeekAsterisk;
+        }
+
+        |lexer|(lexer, current_pos, lexem_type = lexem_type.Operator);
+    }
+    : current_char == '<' ?
+    {
+        |next_pos => current_pos|(lexer, current_pos);
+        |current_char|(lexer, current_pos);
+
+        |current_pos, current_char|(lexer, current_pos, current_char, skip_chr = '=');
+        |current_pos, current_char|(lexer, current_pos, current_char, skip_chr = '=');
+        |current_pos, current_char|(lexer, current_pos, current_char, skip_chr = '=');
+        |lexer|(lexer, current_pos, lexem_type = lexem_type.Operator);
+    }
+    : current_char == '=' ?
+    {
+        |next_pos => current_pos|(lexer, current_pos);
+        |current_char|(lexer, current_pos);
+
+        |current_pos, current_char|(lexer, current_pos, current_char, skip_chr = '=');
+        |current_pos, current_char|(lexer, current_pos, current_char, skip_chr = '>');
+        |lexer|(lexer, current_pos, lexem_type = lexem_type.Operator);
+    }
+    : current_char == '.' ?
+    {
+        |next_pos => current_pos|(lexer, current_pos);
+        |current_char|(lexer, current_pos);
+
+        |current_pos, current_char|(lexer, current_pos, current_char, skip_chr = '.');
+        |lexer|(lexer, current_pos, lexem_type = lexem_type.Operator);
+    }
+    : current_char == '&' ?
+    {
+        |next_pos => current_pos|(lexer, current_pos);
+        |current_char|(lexer, current_pos);
+
+        |current_pos, current_char|(lexer, current_pos, current_char, skip_chr = '&');
+        |lexer|(lexer, current_pos, lexem_type = lexem_type.Operator);
+    }
+    : current_char == '|' ?
+    {
+        |next_pos => current_pos|(lexer, current_pos);
+        |current_char|(lexer, current_pos);
+
+        |current_pos, current_char|(lexer, current_pos, current_char, skip_chr = '|');
+        |lexer|(lexer, current_pos, lexem_type = lexem_type.Operator);
+    }
+    : current_char == '^' ?
+    {
+        |next_pos => current_pos|(lexer, current_pos);
+        |current_char|(lexer, current_pos);
+
+        |current_pos, current_char|(lexer, current_pos, current_char, skip_chr = '^');
+        |lexer|(lexer, current_pos, lexem_type = lexem_type.Operator);
+    }
+    : current_char == '?' || current_char == ':' || current_char == '~' || current_char == ',' || current_char == ';' ?
+    {
+        |next_pos => current_pos|(lexer, current_pos);
+        |current_char|(lexer, current_pos);
+
+        |lexer|(lexer, current_pos, lexem_type = lexem_type.Operator);
+    }
+    : current_char == '(' || current_char == ')' ?
+    {
+        |next_pos => current_pos|(lexer, current_pos);
+        |current_char|(lexer, current_pos);
+
+        |lexer|(lexer, current_pos, lexem_type = lexem_type.Bracket);
+    }
+    : current_char == '[' ?
+    {
+        |next_pos => current_pos|(lexer, current_pos);
+        |current_char|(lexer, current_pos);
+
+        |current_pos, current_char|(lexer, current_pos, current_char, skip_chr = '[');
+        |lexer|(lexer, current_pos, lexem_type = lexem_type.Bracket);
+    }
+    : current_char == ']' ?
+    {
+        |next_pos => current_pos|(lexer, current_pos);
+        |current_char|(lexer, current_pos);
+
+        |current_pos, current_char|(lexer, current_pos, current_char, skip_chr = ']');
+        |lexer|(lexer, current_pos, lexem_type = lexem_type.Bracket);
+    }
+    : current_char == '{' || current_char == '}' ?
+    {
+        |next_pos => current_pos|(lexer, current_pos);
+        |current_char|(lexer, current_pos);
+
+        |lexer|(lexer, current_pos, lexem_type = lexem_type.Bracket);
+    }
+    : current_char == ' ' || current_char == '\n' ?
+    {
+        NextSpace:
+            |next_pos => current_pos|(lexer, current_pos);
+            |current_char|(lexer, current_pos);
+
+        current_char == ' ' || current_char == '\n' ?
+        {
+            ==> NextSpace;
+        }
+
+        |lexer|(lexer, current_pos, lexem_type = lexem_type.Blank);
+        ==> NextChar;
+    }
+    : current_char == '\x04' ?
+    {
+        |lexer|(lexer, current_pos, lexem_type = lexem_type.EndOfInput);
+    }
+    :
+    {
+        |next_pos => current_pos|(lexer, current_pos);
+        |current_char|(lexer, current_pos);
+
+        |lexer|(lexer, current_pos, lexem_type = lexem_type.BadChar);
+    };
+}

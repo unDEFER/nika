@@ -1,0 +1,37 @@
+array ~
+{
+    entry ~ u8;
+    len = u32;
+    capacity = u32;
+    entries = entry[[len; capacity]]
+}
+
+|array|(array, new_entry = array.entry)
+{
+    array.len >= array.capacity ?
+    {
+        array.capacity += 256;
+        size = array.capacity * array.entry.size;
+        |&array.entries|(ptr = &aray.entries, size; #realloc);
+    }
+
+    array.entries[array.len] = new_entry;
+    array.len += 1
+}
+
+string ~
+{
+    len = u8{0},
+    chars = char[len]
+}
+
+|filedata, filesize|(filename; read)
+{
+    |fd > 0|(filename, O_RDONLY; #open);
+    |offset => size|(fd, 0, SEEK_END; #lseek);
+    |offset|(fd, 0, SEEK_SET; #lseek);
+    |&filedata|(size; #malloc);
+    |read == size|(fd, &filedata, size; #read);
+    filesize = size;
+    |res == 0|(fd; #close);
+}

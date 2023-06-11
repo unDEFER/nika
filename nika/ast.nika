@@ -1,0 +1,48 @@
+<== lexer;
+<== system;
+
+ast_node_type ~ {{
+    Expression,
+    Operator,
+    Value,
+    Var
+}}
+
+ast_node ~ {
+    type = ast_node_type,
+    <type> {
+        Expression:
+            calcs = array{entry ~ ast_node},
+        Operator:
+            operator = string,
+            num_args = u32,
+            args = u32[num_args],
+        Value:
+            val = string,
+        Var:
+            name = string
+    }
+}
+
+|ast = ast_node|(lexer)
+{
+    ast.type = ast_node_type.Expression;
+Next:
+    |lexer|(lexer);
+
+    lexer.lexem_type == lexem_type.Integer?
+    {
+        value = ast_node;
+        value.type = ast_node_type.Value;
+        value.val = lexer.lexem;
+        ast.calcs ~= value;
+    }
+    :lexer.lexem_type == lexem_type.EndOfInput?
+    {
+        ==> Out;
+    }
+
+    ==> Next;
+
+Out:
+}
